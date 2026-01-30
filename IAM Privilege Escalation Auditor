@@ -1,0 +1,90 @@
+import json
+import logging
+import boto3
+
+# ==============================================================================
+# MASTER SWITCH: Set to False to connect to REAL AWS Environment via Boto3
+# ==============================================================================
+MOCK_MODE = True 
+
+# --- Logging Configuration ---
+logging.basicConfig(
+    level=logging.INFO, 
+    format='%(asctime)s - [%(levelname)s] - %(message)s'
+)
+
+class PrivilegeAuditor:
+    """
+    Description: Scans IAM users for permissions that allow Privilege Escalation.
+    Goal: Enforce 'Least Privilege' and prevent unauthorized Admin access.
+    """
+
+    def __init__(self):
+        # List of dangerous permissions that could lead to account takeover
+        self.dangerous_actions = [
+            "iam:CreatePolicyVersion",
+            "iam:SetDefaultPolicyVersion",
+            "iam:PassRole",
+            "iam:CreateAccessKey",
+            "iam:AttachUserPolicy",
+            "iam:PutUserPolicy"
+        ]
+        if not MOCK_MODE:
+            self.iam = boto3.client('iam')
+
+    def fetch_user_privileges(self):
+        """Fetches user policy metadata from Mock or Real API."""
+        if MOCK_MODE:
+            # Professional Mock: One user with 'PassRole' risk
+            return [
+                {
+                    "UserName": "dev_user_01",
+                    "Permissions": ["s3:ListBucket", "ec2:DescribeInstances"],
+                    "Status": "Secure"
+                },
+                {
+                    "UserName": "shadow_admin_app",
+                    "Permissions": ["iam:PassRole", "ec2:RunInstances"], # PRIV ESCALATION RISK
+                    "Status": "Critical"
+                }
+            ]
+        else:
+            # Real AWS logic would involve iterating through users and their policies
+            # (Simplified for the auditor structure)
+            return []
+
+    def run_privilege_audit(self):
+        logging.info(f"Scanning for Privilege Escalation vectors... (Mode: {'MOCK' if MOCK_MODE else 'REAL'})")
+        users = self.fetch_user_privileges()
+        audit_results = []
+
+        for user in users:
+            found_risks = [action for action in user['Permissions'] if action in self.dangerous_actions]
+            
+            # Risk Detection Logic
+            is_vulnerable = len(found_risks) > 0
+            
+            audit_results.append({
+                "Target_User": user['UserName'],
+                "Dangerous_Actions_Found": found_risks if is_vulnerable else "None",
+                "Escalation_Risk": "HIGH" if is_vulnerable else "LOW",
+                "Compliance": "FAIL" if is_vulnerable else "PASS",
+                "Mitre_Technique": "T1548 (Abuse Elevation Control Mechanism)",
+                "Remediation": "Remove IAM write permissions from non-admin users."
+            })
+            
+        return audit_results
+
+if __name__ == "__main__":
+    auditor = PrivilegeAuditor()
+    findings = auditor.run_privilege_audit()
+    
+    print("\n" + "🛡️ " * 15)
+    print("      IAM PRIVILEGE ESCALATION AUDIT")
+    print("🛡️ " * 15)
+    print(json.dumps(findings, indent=4))
+
+    # --- Professional Security Alerts ---
+    for res in findings:
+        if res['Escalation_Risk'] == "HIGH":
+            logging.critical(f"ALERT: User '{res['Target_User']}' can ESCALATE PRIVILEGES using {res['Dangerous_Actions_Found']}!")

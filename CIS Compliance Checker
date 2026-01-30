@@ -1,0 +1,97 @@
+import boto3
+import json
+import logging
+from botocore.exceptions import NoCredentialsError, ClientError
+
+# ==============================================================================
+# MASTER SWITCH: Set to False to connect to REAL AWS Environment via Boto3
+# ==============================================================================
+MOCK_MODE = True 
+
+# Configure professional auditing logs
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+class CISComplianceChecker:
+    """
+    Description: Audits AWS Environment against CIS Foundation Benchmarks.
+    Focus: Identity Access Management (IAM) and S3 Storage Security.
+    """
+    def __init__(self):
+        self.region = "us-east-1"
+        if not MOCK_MODE:
+            # Initialize AWS clients for IAM and S3
+            self.iam = boto3.client('iam')
+            self.s3 = boto3.client('s3', region_name=self.region)
+
+    def audit_iam_mfa(self):
+        """CIS Control 1.4: Check if MFA is enabled for the Root account."""
+        logging.info("Auditing IAM Root MFA status...")
+        status = "FAIL"
+        
+        if MOCK_MODE:
+            # Simulating a PASS scenario for the portfolio
+            status = "PASS"
+        else:
+            try:
+                # Fetches account-level security settings
+                summary = self.iam.get_account_summary()
+                if summary['SummaryMap'].get('AccountMFAEnabled', 0) == 1:
+                    status = "PASS"
+            except Exception as e:
+                logging.error(f"Error auditing IAM: {e}")
+
+        return {
+            "Control_ID": "1.4",
+            "Check_Name": "Root MFA Enabled",
+            "Status": status,
+            "Severity": "CRITICAL",
+            "Remediation": "Enable MFA for the Root user in the IAM console immediately."
+        }
+
+    def audit_s3_public_block(self):
+        """CIS Control 2.1.1: Check for Account-level S3 Public Access Block."""
+        logging.info("Auditing S3 Account-level Public Access settings...")
+        status = "FAIL"
+
+        if MOCK_MODE:
+            # Simulating a FAIL scenario to show risk detection
+            status = "FAIL"
+        else:
+            try:
+                # API to check if public access is blocked at the account level
+                response = self.s3.get_public_access_block()
+                config = response['PublicAccessBlockConfiguration']
+                if config['BlockPublicAcls'] and config['IgnorePublicAcls']:
+                    status = "PASS"
+            except ClientError:
+                # If no configuration is found, it means it's not enabled
+                status = "FAIL"
+
+        return {
+            "Control_ID": "2.1.1",
+            "Check_Name": "S3 Public Access Block",
+            "Status": status,
+            "Severity": "HIGH",
+            "Remediation": "Enable 'Block Public Access' in S3 account settings to prevent data leaks."
+        }
+
+    def generate_compliance_report(self):
+        """Executes all CIS checks and aggregates results."""
+        results = [self.audit_iam_mfa(), self.audit_s3_public_block()]
+        
+        return {
+            "Framework": "CIS AWS Foundations Benchmark",
+            "Version": "1.4.0",
+            "Audit_Mode": "MOCK" if MOCK_MODE else "REAL_AWS",
+            "Findings": results
+        }
+
+if __name__ == "__main__":
+    checker = CISComplianceChecker()
+    report = checker.generate_compliance_report()
+    
+    # Printing the result in a clean, readable JSON format
+    print("\n" + "🛡️ " * 10)
+    print(" CIS COMPLIANCE REPORT")
+    print("🛡️ " * 10)
+    print(json.dumps(report, indent=4))

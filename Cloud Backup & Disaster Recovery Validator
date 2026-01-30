@@ -1,0 +1,80 @@
+import boto3
+import json
+import logging
+from botocore.exceptions import NoCredentialsError
+
+# ==============================================================================
+# MASTER SWITCH: Set to False to connect to REAL AWS Environment via Boto3
+# ==============================================================================
+MOCK_MODE = True 
+
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+class BackupValidator:
+    """
+    Description: Validates that AWS Backups are completed and encrypted.
+    Objective: Ensure Disaster Recovery readiness.
+    """
+    def __init__(self):
+        self.region = "us-east-1"
+        if not MOCK_MODE:
+            self.backup_client = boto3.client('backup', region_name=self.region)
+
+    def fetch_recovery_points(self):
+        """Fetches backup metadata from Mock data or Real AWS API."""
+        if MOCK_MODE:
+            # Professional Mock: One safe backup, one failed/unencrypted backup
+            return {
+                'RecoveryPoints': [
+                    {
+                        'RecoveryPointArn': 'arn:aws:backup:us-east-1:123:rp-success',
+                        'Status': 'COMPLETED',
+                        'EncryptionKeyArn': 'arn:aws:kms:us-east-1:key-456',
+                        'ResourceType': 'EBS'
+                    },
+                    {
+                        'RecoveryPointArn': 'arn:aws:backup:us-east-1:123:rp-danger',
+                        'Status': 'FAILED',
+                        'ResourceType': 'RDS'
+                    }
+                ]
+            }
+        else:
+            try:
+                return self.backup_client.list_recovery_points(MaxResults=10)
+            except NoCredentialsError:
+                logging.error("AWS Credentials not found.")
+                return {'RecoveryPoints': []}
+
+    def validate_dr_readiness(self):
+        logging.info(f"Auditing Backup & Disaster Recovery (Mode: {'MOCK' if MOCK_MODE else 'REAL'})...")
+        data = self.fetch_recovery_points()
+        audit_results = []
+
+        for rp in data.get('RecoveryPoints', []):
+            arn = rp['RecoveryPointArn']
+            status = rp.get('Status')
+            encrypted = 'EncryptionKeyArn' in rp
+            
+            # Security Logic
+            is_valid = (status == 'COMPLETED') and encrypted
+            
+            audit_results.append({
+                "Backup_ID": arn,
+                "Backup_Status": status,
+                "Is_Encrypted": encrypted,
+                "Compliance": "PASS" if is_valid else "FAIL",
+                "Severity": "OK" if is_valid else "CRITICAL",
+                "Remediation": "Ensure backup jobs are running and KMS encryption is enabled."
+            })
+        
+        return audit_results
+
+if __name__ == "__main__":
+    validator = BackupValidator()
+    report = validator.validate_dr_readiness()
+    
+    print("\n" + "💾 " * 15)
+    print("  BACKUP & DR VALIDATION REPORT")
+    print("💾 " * 15)
+    print(json.dumps(report, indent=4))

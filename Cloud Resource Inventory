@@ -1,0 +1,85 @@
+import boto3
+import json
+import logging
+from botocore.exceptions import NoCredentialsError
+
+# ==============================================================================
+# MASTER SWITCH: Set to False to connect to REAL AWS Environment via Boto3
+# ==============================================================================
+MOCK_MODE = True 
+
+# Configure professional logging for asset discovery
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+class CloudResourceInventory:
+    """
+    Description: Automated discovery of all EC2 instances to manage assets.
+    Compliance: Asset Management & Inventory Control standards.
+    """
+    def __init__(self):
+        self.region = "us-east-1"
+        if not MOCK_MODE:
+            # Initialize the EC2 client only if MOCK_MODE is disabled
+            self.ec2_client = boto3.client('ec2', region_name=self.region)
+
+    def fetch_inventory_data(self):
+        """Fetches raw instance data from Mock or Real AWS API."""
+        if MOCK_MODE:
+            # Professional Mock: Simulated JSON response mimicking AWS structure
+            return {
+                'Reservations': [
+                    {
+                        'Instances': [
+                            {
+                                'InstanceId': 'i-0abcd1234efgh5678',
+                                'InstanceType': 't2.micro',
+                                'State': {'Name': 'running'},
+                                'LaunchTime': '2025-01-01'
+                            },
+                            {
+                                'InstanceId': 'i-0987654321fedcba0',
+                                'InstanceType': 'm5.large',
+                                'State': {'Name': 'stopped'},
+                                'LaunchTime': '2024-12-15'
+                            }
+                        ]
+                    }
+                ]
+            }
+        else:
+            try:
+                # Using MaxResults=10 to manage API load and ensure fast execution
+                return self.ec2_client.describe_instances(MaxResults=10)
+            except NoCredentialsError:
+                logging.error("AWS Credentials not found. Please verify your environment.")
+                return {'Reservations': []}
+
+    def run_inventory_scan(self):
+        logging.info(f"Initiating Cloud Inventory Scan (Mode: {'MOCK' if MOCK_MODE else 'REAL'})...")
+        data = self.fetch_inventory_data()
+        inventory_report = []
+
+        # AWS returns a nested list of 'Reservations', each containing 'Instances'
+        for reservation in data.get('Reservations', []):
+            for instance in reservation.get('Instances', []):
+                instance_id = instance['InstanceId']
+                state = instance['State']['Name']
+                
+                inventory_report.append({
+                    "Asset_ID": instance_id,
+                    "Instance_Type": instance['InstanceType'],
+                    "Current_State": state,
+                    "Operational_Status": "ACTIVE" if state == "running" else "INACTIVE",
+                    "Severity": "INFO"
+                })
+        
+        return inventory_report
+
+if __name__ == "__main__":
+    scanner = CloudResourceInventory()
+    final_inventory = scanner.run_inventory_scan()
+    
+    print("\n" + "🖥️ " * 15)
+    print("  CLOUD RESOURCE INVENTORY REPORT")
+    print("🖥️ " * 15)
+    print(json.dumps(final_inventory, indent=4))

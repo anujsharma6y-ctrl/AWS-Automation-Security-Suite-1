@@ -1,0 +1,80 @@
+import boto3
+import json
+import logging
+from botocore.exceptions import NoCredentialsError, ClientError
+
+# ==============================================================================
+# MASTER SWITCH: Set to False to connect to REAL AWS Environment via Boto3
+# ==============================================================================
+MOCK_MODE = True 
+
+# Configure professional logging for security audits
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+class S3PublicAccessScanner:
+    """
+    Description: Scans all S3 buckets for dangerous public access configurations.
+    Goal: Prevent accidental data exposure and data leaks.
+    """
+    def __init__(self):
+        self.region = "us-east-1"
+        if not MOCK_MODE:
+            # Initialize S3 client only if real mode is active
+            self.s3_client = boto3.client('s3', region_name=self.region)
+
+    def get_all_buckets(self):
+        """Retrieves a list of all bucket names in the account."""
+        if MOCK_MODE:
+            # Simulated list of buckets
+            return ["company-private-data", "marketing-public-assets", "internal-backups"]
+        else:
+            try:
+                response = self.s3_client.list_buckets()
+                return [b['Name'] for b in response.get('Buckets', [])]
+            except Exception as e:
+                logging.error(f"Failed to list buckets: {e}")
+                return []
+
+    def check_public_block(self, bucket_name):
+        """Checks if 'Block Public Access' is enabled for a specific bucket."""
+        if MOCK_MODE:
+            # Mock Logic: Flagging 'backups' and 'private' as vulnerable
+            return False if "public" not in bucket_name else True
+        else:
+            try:
+                # API to fetch the Public Access Block configuration
+                response = self.s3_client.get_public_access_block(Bucket=bucket_name)
+                config = response['PublicAccessBlockConfiguration']
+                # If these are True, the bucket is protected
+                return config['BlockPublicAcls'] and config['IgnorePublicAcls']
+            except ClientError as e:
+                # If no configuration exists, AWS returns an error, meaning it's PUBLIC
+                return False
+
+    def run_security_scan(self):
+        logging.info(f"Initiating S3 Public Access Scan (Mode: {'MOCK' if MOCK_MODE else 'REAL'})...")
+        buckets = self.get_all_buckets()
+        vulnerability_report = []
+
+        for name in buckets:
+            is_protected = self.check_public_block(name)
+            
+            # Risk Logic: If not protected, it's a security risk
+            vulnerability_report.append({
+                "Bucket_Name": name,
+                "Public_Block_Status": "ENABLED" if is_protected else "DISABLED",
+                "Security_Risk": "NONE" if is_protected else "HIGH_EXPOSURE_RISK",
+                "Compliance": "PASS" if is_protected else "FAIL",
+                "Action_Required": "Enable Public Access Block immediately" if not is_protected else "None"
+            })
+        
+        return vulnerability_report
+
+if __name__ == "__main__":
+    scanner = S3PublicAccessScanner()
+    report = scanner.run_security_scan()
+    
+    print("\n" + "🪣  " * 10)
+    print("  S3 PUBLIC ACCESS AUDIT REPORT")
+    print("🪣  " * 10)
+    print(json.dumps(report, indent=4))

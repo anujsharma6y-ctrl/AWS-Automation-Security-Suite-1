@@ -1,0 +1,90 @@
+import json
+import logging
+import boto3
+from datetime import datetime, timedelta
+# ==========================================
+# MASTER SWITCH: Change to False for REAL AWS
+# ==========================================
+MOCK_MODE = True
+# # --- Logging Configuration ---
+logging.basicConfig(
+    level=logging.INFO, 
+    format='%(asctime)s - [%(levelname)s] - %(message)s'
+)
+
+class IAMAuditor:
+    """
+    Automated tool to audit AWS IAM users for security compliance.
+    """
+
+    def __init__(self):
+        self.timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def audit_users(self, use_mock=True):
+        """
+        Analyzes IAM user metadata to find security gaps.
+        """
+        logging.info("Starting IAM Compliance Audit...")
+
+        if use_mock:
+            # # Mocking real IAM User metadata
+            return [
+                {
+                    "user_name": "admin_root",
+                    "mfa_enabled": True,
+                    "key_age_days": 120,
+                    "status": "Warning",
+                    "issue": "Access Key older than 90 days"
+                },
+                {
+                    "user_name": "intern_dev",
+                    "mfa_enabled": False,
+                    "key_age_days": 10,
+                    "status": "Critical",
+                    "issue": "MFA is NOT enabled"
+                },
+                {
+                    "user_name": "cloud_security_tool",
+                    "mfa_enabled": True,
+                    "key_age_days": 45,
+                    "status": "Secure",
+                    "issue": "None"
+                }
+            ]
+        return []
+
+    def create_audit_summary(self, findings):
+        """Converts raw findings into a professional audit report."""
+        return {
+            "audit_info": {
+                "engine": "Sentinel-IAM-Scanner",
+                "generated_at": self.timestamp
+            },
+            "compliance_score": f"{len([f for f in findings if f['status'] == 'Secure'])}/{len(findings)}",
+            "detailed_report": findings
+        }
+
+# --- Execution ---
+if __name__ == "__main__":
+    auditor = IAMAuditor()
+    
+    # # 1. Run the IAM scan
+    user_findings = auditor.audit_users(use_mock=True)
+    
+    # # 2. Generate JSON report
+    report = auditor.create_audit_summary(user_findings)
+    
+    print("\n" + "█"*60)
+    print("            IAM IDENTITY SECURITY REPORT")
+    print("█"*60)
+    print(json.dumps(report, indent=4))
+
+    # # 3. Professional Security Alerts
+    print("\n" + "!" + "="*15 + " IAM SECURITY VIOLATIONS " + "="*15 + "!")
+    for user in user_findings:
+        if user['status'] == "Critical":
+            logging.error(f"HIGH RISK: User '{user['user_name']}' has NO MFA ENABLED!")
+        elif user['status'] == "Warning":
+            logging.warning(f"POLICY VIOLATION: User '{user['user_name']}' needs to rotate Access Keys.")
+
+    print("█"*60)

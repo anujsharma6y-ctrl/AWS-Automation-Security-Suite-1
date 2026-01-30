@@ -1,0 +1,88 @@
+import boto3
+import json
+import logging
+from botocore.exceptions import NoCredentialsError
+
+# ==============================================================================
+# MASTER SWITCH: Set to False to connect to REAL AWS Environment via Boto3
+# ==============================================================================
+MOCK_MODE = True 
+
+# Configure professional logging for network auditing
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+class SecurityGroupAuditor:
+    """
+    Description: Audits Security Groups for overly permissive inbound rules.
+    Goal: Identify and minimize the network attack surface.
+    """
+    def __init__(self):
+        self.region = "us-east-1"
+        if not MOCK_MODE:
+            # Initialize EC2 client for real AWS connection
+            self.ec2 = boto3.client('ec2', region_name=self.region)
+
+    def fetch_security_groups(self):
+        """Fetches security group metadata from Mock or Real API."""
+        if MOCK_MODE:
+            # Professional Mock: One dangerous group (SSH open), one safe group
+            return {
+                'SecurityGroups': [
+                    {
+                        'GroupId': 'sg-danger-123',
+                        'GroupName': 'Public-Web-Server',
+                        'IpPermissions': [{
+                            'FromPort': 22, 'ToPort': 22, 'IpProtocol': 'tcp',
+                            'IpRanges': [{'CidrIp': '0.0.0.0/0'}] # CRITICAL RISK
+                        }]
+                    },
+                    {
+                        'GroupId': 'sg-safe-456',
+                        'GroupName': 'Private-DB-Server',
+                        'IpPermissions': [{
+                            'FromPort': 3306, 'ToPort': 3306, 'IpProtocol': 'tcp',
+                            'IpRanges': [{'CidrIp': '10.0.0.0/16'}] # INTERNAL ONLY
+                        }]
+                    }
+                ]
+            }
+        else:
+            try:
+                return self.ec2.describe_security_groups()
+            except NoCredentialsError:
+                logging.error("AWS Credentials not found.")
+                return {'SecurityGroups': []}
+
+    def run_audit(self):
+        logging.info(f"Scanning Security Groups for exposure (Mode: {'MOCK' if MOCK_MODE else 'REAL'})...")
+        data = self.fetch_security_groups()
+        findings = []
+
+        for sg in data.get('SecurityGroups', []):
+            for rule in sg.get('IpPermissions', []):
+                for ip_range in rule.get('IpRanges', []):
+                    # Check for "Open to World" CIDR
+                    if ip_range.get('CidrIp') == '0.0.0.0/0':
+                        port = rule.get('FromPort', 'All')
+                        
+                        # Vulnerability Logic
+                        findings.append({
+                            "Group_ID": sg['GroupId'],
+                            "Group_Name": sg['GroupName'],
+                            "Exposed_Port": port,
+                            "Protocol": rule.get('IpProtocol'),
+                            "Risk_Level": "CRITICAL" if port in [22, 3389] else "HIGH",
+                            "Mitre_Technique": "T1190 (Exploit Public-Facing Application)",
+                            "Remediation": "Restrict access to specific corporate IP ranges."
+                        })
+        
+        return findings
+
+if __name__ == "__main__":
+    auditor = SecurityGroupAuditor()
+    audit_results = auditor.run_audit()
+    
+    print("\n" + "🔥 " * 10)
+    print("  SECURITY GROUP EXPOSURE REPORT")
+    print("🔥 " * 10)
+    print(json.dumps(audit_results, indent=4))

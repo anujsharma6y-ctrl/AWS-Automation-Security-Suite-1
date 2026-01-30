@@ -1,0 +1,75 @@
+import json
+import boto3
+import logging
+from datetime import datetime, timezone, timedelta
+from botocore.exceptions import NoCredentialsError
+
+# Configuration for GitHub/Testing
+MOCK_MODE = True # MASTER SWITCH: Change to False for REAL AWS
+
+# Professional Logging
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+class RPOMonitor:
+    """
+    Description: Monitors the age of AWS Backups to ensure RPO compliance.
+    Policy: All critical resources must have a backup created within the last 24 hours.
+    """
+    def __init__(self):
+        self.rpo_threshold_hours = 24
+        if not MOCK_MODE:
+            self.client = boto3.client('backup', region_name='us-east-1')
+
+    def fetch_backup_metadata(self):
+        """Fetches backup timestamps from Mock data or Real AWS API."""
+        if MOCK_MODE:
+            # Simulated Data: One healthy backup, one stale backup
+            return [
+                {
+                    "Arn": "arn:aws:backup:us-east-1:123:recovery-point-001",
+                    "CreatedAt": datetime.now(timezone.utc) - timedelta(hours=6)
+                },
+                {
+                    "Arn": "arn:aws:backup:us-east-1:123:recovery-point-002",
+                    "CreatedAt": datetime.now(timezone.utc) - timedelta(hours=50) # Fails RPO
+                }
+            ]
+        else:
+            try:
+                response = self.client.list_recovery_points(MaxResults=20)
+                return [{"Arn": r['RecoveryPointArn'], "CreatedAt": r['CreationDate']} 
+                        for r in response.get('RecoveryPoints', [])]
+            except NoCredentialsError:
+                logging.error("AWS Credentials missing. Switch to MOCK_MODE=True to test.")
+                return []
+
+    def run_compliance_check(self):
+        logging.info(f"Initiating RPO Audit (Threshold: {self.rpo_threshold_hours}h)...")
+        backups = self.fetch_backup_metadata()
+        now = datetime.now(timezone.utc)
+        results = []
+
+        for b in backups:
+            # Calculating age in hours
+            age_delta = now - b['CreatedAt']
+            age_hours = age_delta.total_seconds() / 3600
+            
+            is_compliant = age_hours <= self.rpo_threshold_hours
+            
+            results.append({
+                "Backup_ARN": b['Arn'],
+                "Backup_Age_Hours": round(age_hours, 2),
+                "RPO_Status": "COMPLIANT" if is_compliant else "NON_COMPLIANT",
+                "Severity": "OK" if is_compliant else "HIGH"
+            })
+        
+        return results
+
+if __name__ == "__main__":
+    monitor = RPOMonitor()
+    audit_report = monitor.run_compliance_check()
+    
+    print("\n" + "🕒" * 15)
+    print("  AWS BACKUP RPO COMPLIANCE REPORT")
+    print("🕒" * 15)
+    print(json.dumps(audit_report, indent=4))

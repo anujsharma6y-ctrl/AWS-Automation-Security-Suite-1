@@ -1,0 +1,84 @@
+import boto3
+import json
+import logging
+from datetime import datetime, timedelta
+
+# ==============================================================================
+# MASTER SWITCH: Set to False to connect to REAL AWS Environment via Boto3
+# ==============================================================================
+MOCK_MODE = True 
+
+# Configure professional logging
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+class CostAnomalyDetector:
+    """
+    Description: Detects unusual spikes in AWS spending that may indicate account abuse.
+    Goal: Identify Crypto-jacking or unauthorized resource provisioning.
+    """
+    def __init__(self):
+        if not MOCK_MODE:
+            # Initialize Cost Explorer client
+            self.ce = boto3.client('ce', region_name='us-east-1')
+
+    def get_spending_data(self):
+        """Fetches daily spending metrics for the last 48 hours."""
+        # Calculate dates for API query
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=2)).strftime('%Y-%m-%d')
+
+        if MOCK_MODE:
+            # Simulated data: Yesterday $10, Today $50 (Huge Spike!)
+            return [
+                {'TimePeriod': {'Start': 'Yesterday'}, 'Total': {'Amount': '10.0'}},
+                {'TimePeriod': {'Start': 'Today'}, 'Total': {'Amount': '50.0'}}
+            ]
+        else:
+            try:
+                # Query AWS Cost Explorer for daily unblended costs
+                response = self.ce.get_cost_and_usage(
+                    TimePeriod={'Start': start_date, 'End': end_date},
+                    Granularity='DAILY',
+                    Metrics=['UnblendedCost']
+                )
+                return response['ResultsByTime']
+            except Exception as e:
+                logging.error(f"Cost Explorer API Error: {e}")
+                return []
+
+    def detect_abuse(self):
+        logging.info("Analyzing cost patterns for anomalies...")
+        data = self.get_spending_data()
+        
+        if len(data) < 2:
+            return {"Status": "INSUFFICIENT_DATA", "Message": "Need at least 2 days of data."}
+
+        # Extract costs from the response
+        prev_day_cost = float(data[0]['Total']['Amount'])
+        current_day_cost = float(data[1]['Total']['Amount'])
+        
+        # Calculate percentage increase
+        increase_percent = 0
+        if prev_day_cost > 0:
+            increase_percent = ((current_day_cost - prev_day_cost) / prev_day_cost) * 100
+
+        # Detection Logic: Flag if increase is > 25%
+        is_anomaly = increase_percent > 25
+        
+        return {
+            "Yesterday_Cost": f"${prev_day_cost}",
+            "Today_Cost": f"${current_day_cost}",
+            "Increase_Percentage": f"{round(increase_percent, 2)}%",
+            "Anomaly_Detected": is_anomaly,
+            "Severity": "CRITICAL" if is_anomaly else "LOW",
+            "Action": "Investigate newly launched instances or crypto-mining activity." if is_anomaly else "None"
+        }
+
+if __name__ == "__main__":
+    detector = CostAnomalyDetector()
+    report = detector.detect_abuse()
+    
+    print("\n" + "💰 " * 10)
+    print("  COST ABUSE & ANOMALY REPORT")
+    print("💰 " * 10)
+    print(json.dumps(report, indent=4))

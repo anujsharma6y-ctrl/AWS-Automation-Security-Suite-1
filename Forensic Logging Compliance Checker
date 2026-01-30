@@ -1,0 +1,79 @@
+import boto3
+import json
+import logging
+from botocore.exceptions import NoCredentialsError
+
+# ==============================================================================
+# MASTER SWITCH: Set to False to connect to REAL AWS Environment via Boto3
+# ==============================================================================
+MOCK_MODE = True 
+
+# Configure professional logging for forensic auditing
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+class ForensicLoggingAuditor:
+    """
+    Description: Audits CloudTrail for Log File Integrity Validation.
+    Objective: Ensure non-repudiation and forensic readiness of audit logs.
+    """
+    def __init__(self):
+        self.region = "us-east-1"
+        if not MOCK_MODE:
+            # Initialize CloudTrail client for real AWS connectivity
+            self.ct_client = boto3.client('cloudtrail', region_name=self.region)
+
+    def fetch_trail_configs(self):
+        """Retrieves trail settings from Mock or Real API."""
+        if MOCK_MODE:
+            # Professional Mock: One compliant trail, one non-compliant
+            return {
+                'trailList': [
+                    {
+                        'Name': 'Production-Forensic-Trail',
+                        'LogFileValidationEnabled': True, # SECURE
+                        'IsMultiRegionTrail': True
+                    },
+                    {
+                        'Name': 'Shadow-Dev-Trail',
+                        'LogFileValidationEnabled': False, # VULNERABLE
+                        'IsMultiRegionTrail': False
+                    }
+                ]
+            }
+        else:
+            try:
+                return self.ct_client.describe_trails()
+            except NoCredentialsError:
+                logging.error("Credentials not found.")
+                return {'trailList': []}
+
+    def run_forensic_audit(self):
+        logging.info(f"Analyzing log integrity settings (Mode: {'MOCK' if MOCK_MODE else 'REAL'})...")
+        data = self.fetch_trail_configs()
+        compliance_report = []
+
+        for trail in data.get('trailList', []):
+            name = trail['Name']
+            validation_active = trail.get('LogFileValidationEnabled', False)
+            
+            # Forensic Integrity Logic
+            compliance_report.append({
+                "Trail_Name": name,
+                "Log_File_Validation": "ENABLED" if validation_active else "DISABLED",
+                "Forensic_Ready": "YES" if validation_active else "NO",
+                "Compliance_Status": "PASS" if validation_active else "FAIL",
+                "Severity": "LOW" if validation_active else "HIGH",
+                "Risk_Impact": "Attackers can modify logs to hide malicious activity." if not validation_active else "None",
+                "Remediation": "Enable 'Log File Validation' in CloudTrail trail settings."
+            })
+        
+        return compliance_report
+
+if __name__ == "__main__":
+    auditor = ForensicLoggingAuditor()
+    results = auditor.run_forensic_audit()
+    
+    print("\n" + "⚖️  " * 10)
+    print("  FORENSIC COMPLIANCE AUDIT REPORT")
+    print("⚖️  " * 10)
+    print(json.dumps(results, indent=4))

@@ -1,0 +1,78 @@
+import boto3
+import json
+import logging
+from botocore.exceptions import NoCredentialsError, ClientError
+
+# ==============================================================================
+# MASTER SWITCH: Set to False to connect to REAL AWS Environment via Boto3
+# ==============================================================================
+MOCK_MODE = True 
+
+# Configure professional logging for visibility tracking
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+class CloudTrailAuditor:
+    """
+    Description: Audits CloudTrail to ensure management events are being logged.
+    Objective: Maintain 100% forensic visibility across the account.
+    """
+    def __init__(self):
+        self.region = "us-east-1"
+        if not MOCK_MODE:
+            # Connect to the CloudTrail service in the specified region
+            self.ct_client = boto3.client('cloudtrail', region_name=self.region)
+
+    def fetch_trail_status(self):
+        """Fetches status of all trails from Mock data or Real AWS API."""
+        if MOCK_MODE:
+            # Professional Mock: One healthy trail, one disabled trail
+            return [
+                {'Name': 'Organization-Wide-Trail', 'IsLogging': True},
+                {'Name': 'Old-Dev-Trail', 'IsLogging': False} # CRITICAL GAP
+            ]
+        else:
+            try:
+                # Get the list of all trails
+                trails = self.ct_client.describe_trails().get('trailList', [])
+                results = []
+                for t in trails:
+                    # Specific API call to check if logging is active
+                    status = self.ct_client.get_trail_status(Name=t['Name'])
+                    results.append({
+                        'Name': t['Name'],
+                        'IsLogging': status.get('IsLogging', False)
+                    })
+                return results
+            except ClientError as e:
+                logging.error(f"CloudTrail API Error: {e}")
+                return []
+
+    def run_visibility_audit(self):
+        logging.info(f"Initiating CloudTrail Visibility Audit (Mode: {'MOCK' if MOCK_MODE else 'REAL'})...")
+        trails_data = self.fetch_trail_status()
+        audit_report = []
+
+        for trail in trails_data:
+            name = trail['Name']
+            is_active = trail['IsLogging']
+            
+            # Security Logic: If logging is disabled, it is a critical finding
+            audit_report.append({
+                "Trail_Name": name,
+                "Logging_Status": "ACTIVE" if is_active else "DISABLED",
+                "Compliance_Status": "PASS" if is_active else "FAIL",
+                "Severity": "OK" if is_active else "CRITICAL",
+                "Impact": "No audit trail available for security investigations." if not is_active else "None",
+                "Remediation": "Navigate to CloudTrail console and 'Start Logging' for the disabled trail."
+            })
+        
+        return audit_report
+
+if __name__ == "__main__":
+    auditor = CloudTrailAuditor()
+    report = auditor.run_visibility_audit()
+    
+    print("\n" + "👁️  " * 10)
+    print("  CLOUDTRAIL VISIBILITY REPORT")
+    print("👁️  " * 10)
+    print(json.dumps(report, indent=4))

@@ -1,0 +1,80 @@
+import boto3
+import json
+import logging
+from botocore.exceptions import NoCredentialsError
+
+# ==============================================================================
+# MASTER SWITCH: Set to False to connect to REAL AWS Environment via Boto3
+# ==============================================================================
+MOCK_MODE = True 
+
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+class AttackSurfaceMapper:
+    """
+    Description: Identifies publicly exposed ports in EC2 Security Groups.
+    Risk: Exposure of management ports (SSH/RDP) to the public internet.
+    """
+    def __init__(self):
+        self.region = "us-east-1"
+        if not MOCK_MODE:
+            self.ec2 = boto3.client('ec2', region_name=self.region)
+
+    def fetch_security_groups(self):
+        if MOCK_MODE:
+            # Professional Mock: One dangerous SG, one safe SG
+            return {
+                'SecurityGroups': [
+                    {
+                        'GroupId': 'sg-danger-01',
+                        'GroupName': 'Public-Web-SG',
+                        'IpPermissions': [{
+                            'FromPort': 22, 'ToPort': 22, 'IpProtocol': 'tcp',
+                            'IpRanges': [{'CidrIp': '0.0.0.0/0'}] # CRITICAL
+                        }]
+                    },
+                    {
+                        'GroupId': 'sg-safe-02',
+                        'GroupName': 'Internal-DB-SG',
+                        'IpPermissions': [{
+                            'FromPort': 3306, 'ToPort': 3306, 'IpProtocol': 'tcp',
+                            'IpRanges': [{'CidrIp': '10.0.0.0/16'}] # SAFE
+                        }]
+                    }
+                ]
+            }
+        else:
+            try:
+                return self.ec2.describe_security_groups()
+            except NoCredentialsError:
+                logging.error("Credentials missing for EC2 scan.")
+                return {'SecurityGroups': []}
+
+    def map_vulnerabilities(self):
+        logging.info(f"Mapping Attack Surface in {self.region}...")
+        data = self.fetch_security_groups()
+        exposures = []
+
+        for sg in data.get('SecurityGroups', []):
+            for rule in sg.get('IpPermissions', []):
+                for ip_range in rule.get('IpRanges', []):
+                    if ip_range.get('CidrIp') == '0.0.0.0/0':
+                        port = rule.get('FromPort', 'All')
+                        exposures.append({
+                            "SecurityGroup": sg['GroupId'],
+                            "Name": sg['GroupName'],
+                            "Exposed_Port": port,
+                            "Protocol": rule.get('IpProtocol'),
+                            "Risk": "PUBLIC_ACCESS_DETECTED",
+                            "Severity": "CRITICAL" if port in [22, 3389, 23] else "HIGH"
+                        })
+        return exposures
+
+if __name__ == "__main__":
+    mapper = AttackSurfaceMapper()
+    findings = mapper.map_vulnerabilities()
+    
+    print("\n" + "🔥" * 15)
+    print(" CLOUD ATTACK SURFACE MAP")
+    print("🔥" * 15)
+    print(json.dumps(findings, indent=4))
