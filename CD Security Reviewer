@@ -1,0 +1,90 @@
+import json
+import re
+import logging
+import sys
+import os
+
+# ==============================================================================
+# MASTER SWITCH: Set to False to scan REAL FILES in your repository
+# ==============================================================================
+MOCK_MODE = True 
+
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+class GuardianGate:
+    def __init__(self):
+        self.findings = []
+        # Professional patterns for Secrets and Misconfigs
+        self.patterns = {
+            "AWS_KEY": r'AKIA[0-9A-Z]{16}',
+            "PRIVATE_KEY": r'-----BEGIN RSA PRIVATE KEY-----',
+            "DOCKER_ROOT": r'USER root',
+            "S3_PUBLIC": r'acl\s*=\s*"public-read"'
+        }
+
+    def get_content(self, filepath):
+        """Logic to switch between Mock and Real data."""
+        if MOCK_MODE:
+            # Simulated data for testing without needing actual files
+            mock_repo = {
+                "Dockerfile": "FROM ubuntu:latest\nUSER root\nRUN apt update",
+                "main.tf": 'resource "aws_s3_bucket" "data" {\n  acl = "public-read"\n}',
+                "keys.py": 'SECRET = "AKIA1234567890ABCDEF"'
+            }
+            return mock_repo.get(filepath, "")
+        else:
+            # Real World: Reading from the actual file system
+            if os.path.exists(filepath):
+                with open(filepath, 'r') as f:
+                    return f.read()
+            else:
+                logging.warning(f"File {filepath} not found in the repository.")
+                return ""
+
+    def run_security_audit(self, file_list):
+        mode_str = "MOCK" if MOCK_MODE else "REAL"
+        logging.info(f"Initiating GuardianGate Audit (Mode: {mode_str})...")
+        
+        for file in file_list:
+            content = self.get_content(file)
+            if not content: continue
+
+            # 1. Scan for Secrets (AWS Keys, Private Keys)
+            if re.search(self.patterns["AWS_KEY"], content):
+                self.findings.append({"File": file, "Issue": "Hardcoded AWS Key", "Severity": "CRITICAL"})
+            
+            if re.search(self.patterns["PRIVATE_KEY"], content):
+                self.findings.append({"File": file, "Issue": "Exposed RSA Private Key", "Severity": "CRITICAL"})
+
+            # 2. Docker Security Check
+            if "Dockerfile" in file:
+                # Flag if USER is root or USER command is missing
+                if self.patterns["DOCKER_ROOT"] in content or "USER" not in content:
+                    self.findings.append({"File": file, "Issue": "Container running as ROOT", "Severity": "HIGH"})
+
+            # 3. Infrastructure-as-Code (Terraform) Check
+            if file.endswith(".tf"):
+                if re.search(self.patterns["S3_PUBLIC"], content):
+                    self.findings.append({"File": file, "Issue": "Public S3 Bucket Policy", "Severity": "CRITICAL"})
+
+        return self.findings
+
+if __name__ == "__main__":
+    scanner = GuardianGate()
+    
+    # Files we want to audit
+    target_files = ["Dockerfile", "main.tf", "keys.py"]
+    
+    report = scanner.run_security_audit(target_files)
+    
+    print("\n" + "🛡️  " * 10)
+    print(f" GUARDIAN GATE REPORT ({'MOCK' if MOCK_MODE else 'REAL'})")
+    print("🛡️  " * 10)
+    
+    if report:
+        print(json.dumps(report, indent=4))
+        # Exit with error code 1 to fail the CI/CD pipeline
+        sys.exit(1)
+    else:
+        logging.info("Everything looks secure! Build Passed.")
+        sys.exit(0)
